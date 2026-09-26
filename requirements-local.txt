@@ -1,0 +1,6 @@
+# Everything needed on your own machine: the Modal CLI plus the offline local server.
+# Install with:  pip install -r requirements-local.txt
+# (Kept separate from requirements.txt so the Modal images don't reinstall the modal client.)
+-r requirements.txt
+modal
+uvicorn

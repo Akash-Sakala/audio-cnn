@@ -1,6 +1,9 @@
+# Installed into the Modal images (train.py, main.py) and on your machine.
+# torch/torchaudio are pinned: from torchaudio 2.9, torchaudio.load() requires TorchCodec,
+# which would break train.py.
 pandas
-torchaudio
-torch
+torch==2.8.0
+torchaudio==2.8.0
 tqdm
 numpy
 tensorboard
@@ -8,3 +11,4 @@ fastapi
 librosa
 pydantic
 soundfile
+requests

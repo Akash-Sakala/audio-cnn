@@ -16,7 +16,12 @@ export const env = createEnv({
    * `NEXT_PUBLIC_`.
    */
   client: {
-    // NEXT_PUBLIC_CLIENTVAR: z.string(),
+    // Where the dashboard sends audio. Local server by default; set to your
+    // Modal URL (from `modal deploy main.py`) to use the cloud endpoint instead.
+    NEXT_PUBLIC_INFERENCE_URL: z
+      .string()
+      .url()
+      .default("http://localhost:8000/inference"),
   },
 
   /**
@@ -25,7 +30,7 @@ export const env = createEnv({
    */
   runtimeEnv: {
     NODE_ENV: process.env.NODE_ENV,
-    // NEXT_PUBLIC_CLIENTVAR: process.env.NEXT_PUBLIC_CLIENTVAR,
+    NEXT_PUBLIC_INFERENCE_URL: process.env.NEXT_PUBLIC_INFERENCE_URL,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially

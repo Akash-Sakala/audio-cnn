@@ -1,5 +1,6 @@
 import base64
 import io
+import os
 import modal
 import numpy as np
 import requests
@@ -14,12 +15,25 @@ from model import AudioCNN
 
 app = modal.App("audio-cnn-inference")
 
-image = (modal.Image.debian_slim()
+image = (modal.Image.debian_slim(python_version="3.12")
          .pip_install_from_requirements("requirements.txt")
          .apt_install(["libsndfile1"])
          .add_local_python_source("model"))
 
-model_volume = modal.Volume.from_name("esc-model")
+model_volume = modal.Volume.from_name("esc-model", create_if_missing=True)
+MODEL_PATH = "/models/best_model.pth"
+
+# Short ESC-50 clip of chirping birds, used by `modal run main.py` when no file is given.
+SAMPLE_URL = "https://raw.githubusercontent.com/karolpiczak/ESC-50/master/audio/1-100038-A-14.wav"
+
+
+def model_is_trained() -> bool:
+    """True if train.py has saved best_model.pth to the esc-model volume."""
+    try:
+        entries = model_volume.listdir("/")
+    except modal.exception.NotFoundError:
+        return False
+    return any(e.path.lstrip("/") == "best_model.pth" for e in entries)
 
 
 class AudioProcessor:
@@ -58,7 +72,12 @@ class AudioClassifier:
         self.device = torch.device(
             'cuda' if torch.cuda.is_available() else 'cpu')
 
-        checkpoint = torch.load('/models/best_model.pth',
+        if not os.path.exists(MODEL_PATH):
+            raise RuntimeError(
+                "No trained model found at /models/best_model.pth in the 'esc-model' volume. "
+                "Run `modal run train.py` first.")
+
+        checkpoint = torch.load(MODEL_PATH,
                                 map_location=self.device)
         self.classes = checkpoint['classes']
 
@@ -139,8 +158,23 @@ class AudioClassifier:
 
 
 @app.local_entrypoint()
-def main():
-    audio_data, sample_rate = sf.read("chirpingbirds.wav")
+def main(file: str = "chirpingbirds.wav"):
+    # Usage: modal run main.py                      (uses/downloads chirpingbirds.wav)
+    #        modal run main.py --file my_sound.wav
+    if not model_is_trained():
+        raise SystemExit(
+            "No trained model in the 'esc-model' volume yet. Run `modal run train.py` first.")
+
+    if not os.path.exists(file):
+        if file != "chirpingbirds.wav":
+            raise SystemExit(f"Audio file not found: {file}")
+        print(f"{file} not found, downloading an ESC-50 sample...")
+        r = requests.get(SAMPLE_URL, timeout=60)
+        r.raise_for_status()
+        with open(file, "wb") as f:
+            f.write(r.content)
+
+    audio_data, sample_rate = sf.read(file)
 
     buffer = io.BytesIO()
     sf.write(buffer, audio_data, sample_rate, format="WAV")
@@ -158,8 +192,8 @@ def main():
     if waveform_info:
         values = waveform_info.get("values", {})
         print(f"First 10 values: {[round(v, 4) for v in values[:10]]}...")
-        print(f"Duration: {waveform_info.get("duration", 0)}")
+        print(f"Duration: {waveform_info.get('duration', 0)}")
 
     print("Top predictions:")
     for pred in result.get("predictions", []):
-        print(f"  -{pred["class"]} {pred["confidence"]:0.2%}")
+        print(f"  -{pred['class']} {pred['confidence']:0.2%}")

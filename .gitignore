@@ -45,3 +45,7 @@ env/
 .env
 .modal*
 brca1_analysis_plot.png
+# Model artifacts & local data
+*.pth
+*.wav
+tb_logs/

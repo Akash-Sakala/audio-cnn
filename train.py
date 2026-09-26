@@ -18,7 +18,7 @@ from model import AudioCNN
 
 app = modal.App("audio-cnn")
 
-image = (modal.Image.debian_slim()
+image = (modal.Image.debian_slim(python_version="3.12")
          .pip_install_from_requirements("requirements.txt")
          .apt_install(["wget", "unzip", "ffmpeg", "libsndfile1"])
          .run_commands([

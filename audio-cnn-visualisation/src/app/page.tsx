@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import ColorScale from "~/components/ColorScale";
 import FeatureMap from "~/components/FeatureMap";
@@ -9,6 +8,7 @@ import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Progress } from "~/components/ui/progress";
 import Waveform from "~/components/Waveform";
+import { env } from "~/env";
 
 interface Prediction {
   class: string;
@@ -20,9 +20,7 @@ interface LayerData {
   values: number[][];
 }
 
-interface VisualizationData {
-  [layerName: string]: LayerData;
-}
+type VisualizationData = Record<string, LayerData>;
 
 interface WaveformData {
   values: number[];
@@ -91,7 +89,7 @@ const ESC50_EMOJI_MAP: Record<string, string> = {
 };
 
 const getEmojiForClass = (className: string): string => {
-  return ESC50_EMOJI_MAP[className] || "🔈";
+  return ESC50_EMOJI_MAP[className] ?? "🔈";
 };
 
 function splitLayers(visualization: VisualizationData) {
@@ -105,7 +103,7 @@ function splitLayers(visualization: VisualizationData) {
       const [parent] = name.split(".");
       if (parent === undefined) continue;
 
-      if (!internals[parent]) internals[parent] = [];
+      internals[parent] ??= [];
       internals[parent].push([name, data]);
     }
   }
@@ -142,7 +140,7 @@ export default function HomePage() {
           ),
         );
 
-        const response = await fetch("inference_url_here", {
+        const response = await fetch(env.NEXT_PUBLIC_INFERENCE_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ audio_data: base64String }),
@@ -152,7 +150,7 @@ export default function HomePage() {
           throw new Error(`API error ${response.statusText}`);
         }
 
-        const data: ApiResponse = await response.json();
+        const data = (await response.json()) as ApiResponse;
         setVizData(data);
       } catch (err) {
         setError(
@@ -180,7 +178,7 @@ export default function HomePage() {
             CNN Audio Visualizer
           </h1>
           <p className="text-md mb-8 text-stone-600">
-            Upload a WAV file to see the model's predictions and feauture maps
+            Upload a WAV file to see the model&apos;s predictions and feature maps
           </p>
 
           <div className="flex flex-col items-center">
