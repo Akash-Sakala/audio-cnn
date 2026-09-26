@@ -20,32 +20,27 @@ import librosa
 import numpy as np
 import soundfile as sf
 import torch
-import torch.nn as nn
-import torchaudio.transforms as T
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from model import AudioCNN
+from model import AudioCNN, SpectrogramFrontend
 
 TARGET_SR = 44100          # main.py resamples everything to 44.1 kHz (ESC-50's native rate)
 MAX_WAVEFORM_POINTS = 8000
 
 
 class AudioProcessor:
-    """Identical to main.py's preprocessing — must match what the model was trained on."""
+    """Uses the frontend settings saved in the checkpoint (legacy settings if absent)."""
 
-    def __init__(self):
-        self.transform = nn.Sequential(
-            T.MelSpectrogram(sample_rate=22050, n_fft=1024, hop_length=512,
-                             n_mels=128, f_min=0, f_max=11025),
-            T.AmplitudeToDB(),
-        )
+    def __init__(self, frontend: dict | None = None):
+        self.frontend = SpectrogramFrontend(frontend).eval()
 
     def process_audio_chunk(self, audio_data: np.ndarray) -> torch.Tensor:
-        waveform = torch.from_numpy(audio_data).float().unsqueeze(0)
-        return self.transform(waveform).unsqueeze(0)  # [1, 1, n_mels, time]
+        waveform = torch.from_numpy(audio_data).float().view(1, 1, -1)
+        with torch.no_grad():
+            return self.frontend(waveform)  # [1, 1, n_mels, time]
 
 
 class InferenceRequest(BaseModel):
@@ -66,9 +61,10 @@ class AudioClassifier:
         self.model = AudioCNN(num_classes=len(self.classes))
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.to(self.device).eval()
-        self.audio_processor = AudioProcessor()
+        self.audio_processor = AudioProcessor(checkpoint.get("frontend"))
+        frontend = "v2 (saved in checkpoint)" if checkpoint.get("frontend") else "legacy"
         print(f"Model ready ({len(self.classes)} classes, "
-              f"val acc {checkpoint.get('accuracy', float('nan')):.2f}%)")
+              f"val acc {checkpoint.get('accuracy', float('nan')):.2f}%, frontend: {frontend})")
 
     def predict(self, audio_b64: str) -> dict:
         audio_bytes = base64.b64decode(audio_b64)

@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torchaudio.transforms as T
 
 
 class ResidualBlock(nn.Module):
@@ -96,3 +97,72 @@ class AudioCNN(nn.Module):
             x = self.dropout(x)
             x = self.fc(x)
             return x, feature_maps
+
+
+# ---------------------------------------------------------------------------
+# Spectrogram frontend shared by training (train_v2.py) and inference
+# (main.py, local_server.py). Its settings are stored in each checkpoint under
+# "frontend", so inference always matches what the model was trained on.
+# ---------------------------------------------------------------------------
+
+# Settings used by the original train.py (checkpoints without a "frontend" key).
+# Note: sample_rate=22050 here does not match the 44.1 kHz audio; kept only so
+# old checkpoints keep producing the same inputs they were trained on.
+LEGACY_FRONTEND = {
+    "sample_rate": 22050, "n_fft": 1024, "hop_length": 512, "n_mels": 128,
+    "f_min": 0.0, "f_max": 11025.0, "top_db": None, "mean": None, "std": None,
+}
+
+
+class SpectrogramFrontend(nn.Module):
+    """Waveform [B, 1, samples] at 44.1 kHz -> normalised log-mel [B, 1, n_mels, frames]."""
+
+    def __init__(self, config=None):
+        super().__init__()
+        cfg = {**LEGACY_FRONTEND, **(config or {})}
+        self.config = cfg
+        self.mel = T.MelSpectrogram(
+            sample_rate=cfg["sample_rate"], n_fft=cfg["n_fft"], hop_length=cfg["hop_length"],
+            n_mels=cfg["n_mels"], f_min=cfg["f_min"], f_max=cfg["f_max"])
+        self.to_db = T.AmplitudeToDB(top_db=cfg["top_db"])  # top_db clamps per clip for [B, 1, ...] input
+        self.mean = cfg["mean"]
+        self.std = cfg["std"]
+
+    def forward(self, waveform):
+        spec = self.to_db(self.mel(waveform))
+        if self.mean is not None and self.std is not None:
+            spec = (spec - self.mean) / self.std
+        return spec
+
+
+def load_imagenet_resnet34(model):
+    """Initialise AudioCNN's backbone from torchvision's ImageNet ResNet-34.
+
+    AudioCNN has the same layout as ResNet-34 (3-4-6-3 BasicBlocks), so every
+    backbone tensor maps 1:1 by name. The first conv's RGB filters are summed
+    into one channel (equivalent to feeding the spectrogram to all 3 channels).
+    The classifier head is re-initialised for the new classes.
+    """
+    import torchvision  # only needed for training
+
+    weights = torchvision.models.ResNet34_Weights.IMAGENET1K_V1
+    source = torchvision.models.resnet34(weights=weights).state_dict()
+
+    mapped = {}
+    for key, value in source.items():
+        if key.startswith("fc."):
+            continue
+        if key.startswith("conv1."):
+            key = "conv1.0." + key[len("conv1."):]
+        elif key.startswith("bn1."):
+            key = "conv1.1." + key[len("bn1."):]
+        mapped[key.replace(".downsample.", ".shortcut.")] = value
+    mapped["conv1.0.weight"] = mapped["conv1.0.weight"].sum(dim=1, keepdim=True)
+
+    missing, unexpected = model.load_state_dict(mapped, strict=False)
+    if set(missing) != {"fc.weight", "fc.bias"} or unexpected:
+        raise RuntimeError(f"ImageNet weight mapping failed: missing={missing}, unexpected={unexpected}")
+
+    nn.init.normal_(model.fc.weight, std=0.01)
+    nn.init.zeros_(model.fc.bias)
+    return model

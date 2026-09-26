@@ -19,7 +19,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${geist.variable}`}>
-      <body>{children}</body>
+      {/* suppressHydrationWarning: browser extensions (e.g. Grammarly) add attributes
+          to <body> before React hydrates; this ignores only <body>'s own attributes. */}
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }

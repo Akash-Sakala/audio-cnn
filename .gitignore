@@ -49,3 +49,9 @@ brca1_analysis_plot.png
 *.pth
 *.wav
 tb_logs/
+
+# Local training outputs & test clips
+cv5/
+runs_v2_fold5/
+test_clips_*/
+smoke_run/

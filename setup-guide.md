@@ -28,7 +28,7 @@ Train on Modal's GPU once, download the model, then run the model **and** the da
 
 ## Prerequisites
 
-- Python 3.12 (3.10+ works for the local parts; 3.12 recommended)
+- Python 3.10, 3.11 or 3.12 on your laptop. The Modal images always use 3.12 regardless. Check what you have with `py --list`
 - Node.js 20 or 22 LTS
 - A Modal account (Starter plan: $30/month free compute)
 
@@ -39,7 +39,7 @@ Run from the repo root (`audio-cnn\`). Modal resolves `requirements.txt` relativ
 ```powershell
 cd C:\Users\akash\OneDrive\Desktop\Projects\audio-cnn\audio-cnn
 
-py -3.12 -m venv .venv
+py -3.11 -m venv .venv          # or -3.12 / -3.10, whichever `py --list` shows
 .\.venv\Scripts\Activate.ps1
 
 pip install -r requirements-local.txt
@@ -70,8 +70,12 @@ modal run main.py --file some_clip.wav   # or your own WAV
 modal volume get esc-model best_model.pth .
 #    re-downloading after retraining?  add --force
 
-# 2. (Optional) download the training curves
-modal volume get esc-model tensorboard_logs ./tb_logs
+# 2. (Optional) download the training curves.
+#    The destination folder must exist first, otherwise Modal writes every file
+#    to the same path (Windows: "[Errno 13] Permission denied").
+mkdir tb_logs
+modal volume get esc-model tensorboard_logs tb_logs
+tensorboard --logdir tb_logs    # open http://localhost:6006
 
 # 3. Install and build the dashboard
 cd audio-cnn-visualisation
@@ -108,6 +112,28 @@ Open **http://localhost:3000** and upload a `.wav` file.
 - Server options: `python local_server.py --model path\to\best_model.pth --port 8000`
 - For hot-reload while editing UI code, use `npm run dev` instead of `npm start`. Offline it may warn about the font and use a fallback.
 
+## Training v2 (ImageNet-pretrained, target 90%+)
+
+`train_v2.py` fine-tunes the same `AudioCNN` from ImageNet ResNet-34 weights, with a corrected spectrogram frontend, stronger augmentation and EMA. The original `best_model.pth` is never overwritten.
+
+```powershell
+modal run --detach train_v2.py                          # train folds 1-4, test on fold 5 (~10 min, ~$0.20)
+modal run --detach train_v2.py --folds 1,2,3,4,5        # optional 5-fold CV in parallel (~$1)
+```
+
+- The reported number is the **final-epoch EMA model** on the held-out fold (no best-epoch cherry-picking).
+- Outputs: `esc-model:/runs/<run_name>/fold<k>/` → `model.pth`, `metrics.json`, `tensorboard/`.
+- The run name is printed at the start (default `v2_<date>_<time>`).
+
+Use it locally:
+
+```powershell
+modal volume get esc-model runs/<run_name>/fold5/model.pth best_model_v2.pth
+python local_server.py --model best_model_v2.pth
+```
+
+The checkpoint carries its own spectrogram settings, so `local_server.py` and `main.py` apply them automatically. Old checkpoints keep using the legacy settings.
+
 ## Switching the dashboard between local and Modal
 
 The dashboard reads `NEXT_PUBLIC_INFERENCE_URL` at **build time**. With no `.env`, it uses the local server.
@@ -137,6 +163,8 @@ Then run `npm run build` again (or restart `npm run dev`). Delete the line and r
 | `Could not process audio` (HTTP 400) | Upload a real WAV file. The dashboard only accepts `.wav` |
 | Unicode or emoji errors in the Windows console | `$env:PYTHONUTF8=1` |
 | Modal rejects `gpu="A10G"` | Change to `gpu="A10"` in `train.py` and `main.py` |
+| `py -3.12`: "No suitable Python runtime found" | Use an installed version (`py --list`, e.g. `py -3.11`), or `winget install -e --id Python.Python.3.12` |
+| `modal volume get … ./tb_logs`: `[Errno 13] Permission denied` | Create the folder first: `mkdir tb_logs`, then rerun |
 | `Execution policy` blocks `Activate.ps1` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
 
 ## Cost notes (Modal Starter, $30/month free)

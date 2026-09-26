@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ColorScale from "~/components/ColorScale";
 import FeatureMap from "~/components/FeatureMap";
 import { Badge } from "~/components/ui/badge";
@@ -116,6 +116,14 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
+  // Free the previous file's object URL when a new file is chosen or the page unmounts
+  useEffect(() => {
+    return () => {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+    };
+  }, [audioUrl]);
 
   const handleFileChange = async (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -124,6 +132,7 @@ export default function HomePage() {
     if (!file) return;
 
     setFileName(file.name);
+    setAudioUrl(URL.createObjectURL(file)); // playable immediately, before analysis finishes
     setIsLoading(true);
     setError(null);
     setVizData(null);
@@ -208,6 +217,17 @@ export default function HomePage() {
               >
                 {fileName}
               </Badge>
+            )}
+
+            {audioUrl && (
+              <audio
+                key={audioUrl}
+                controls
+                preload="metadata"
+                src={audioUrl}
+                aria-label={`Play ${fileName}`}
+                className="mt-4 w-full max-w-md"
+              />
             )}
           </div>
         </div>

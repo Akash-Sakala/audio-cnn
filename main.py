@@ -11,7 +11,7 @@ from pydantic import BaseModel
 import soundfile as sf
 import librosa
 
-from model import AudioCNN
+from model import AudioCNN, SpectrogramFrontend
 
 app = modal.App("audio-cnn-inference")
 
@@ -37,27 +37,15 @@ def model_is_trained() -> bool:
 
 
 class AudioProcessor:
-    def __init__(self):
-        self.transform = nn.Sequential(
-            T.MelSpectrogram(
-                sample_rate=22050,
-                n_fft=1024,
-                hop_length=512,
-                n_mels=128,
-                f_min=0,
-                f_max=11025
-            ),
-            T.AmplitudeToDB()
-        )
+    """Uses the frontend settings saved in the checkpoint (legacy settings if absent)."""
+
+    def __init__(self, frontend=None):
+        self.frontend = SpectrogramFrontend(frontend).eval()
 
     def process_audio_chunk(self, audio_data):
-        waveform = torch.from_numpy(audio_data).float()
-
-        waveform = waveform.unsqueeze(0)
-
-        spectrogram = self.transform(waveform)
-
-        return spectrogram.unsqueeze(0)
+        waveform = torch.from_numpy(audio_data).float().view(1, 1, -1)
+        with torch.no_grad():
+            return self.frontend(waveform)  # [1, 1, n_mels, time]
 
 
 class InferenceRequest(BaseModel):
@@ -86,7 +74,7 @@ class AudioClassifier:
         self.model.to(self.device)
         self.model.eval()
 
-        self.audio_processor = AudioProcessor()
+        self.audio_processor = AudioProcessor(checkpoint.get("frontend"))
         print("Model loaded on enter")
 
     @modal.fastapi_endpoint(method="POST")
